@@ -1,0 +1,75 @@
+import pandas as pd
+from surprise import Dataset
+from surprise import Reader
+
+# Load the dataset
+data = pd.read_csv('ratings.csv')
+
+# Define the format
+reader = Reader(rating_scale=(1, 5))
+
+# Load data from dataframe
+data = Dataset.load_from_df(data[['userId', 'movieId', 'rating']], reader)
+
+from surprise import SVD
+from surprise.model_selection import cross_validate
+
+# Define the SVD algorithm
+algo = SVD()
+
+# Evaluate performances of our algorithm on the dataset
+cross_validate(algo, data, measures=['RMSE', 'MAE'], cv=5, verbose=True)
+
+# Retrieve the trainset
+trainset = data.build_full_trainset()
+algo.fit(trainset)
+
+# Predict a certain item
+userid = str(196)
+itemid = str(302)
+actual_rating = 4
+print(algo.predict(userid, itemid, actual_rating))
+
+from surprise.model_selection import GridSearchCV
+
+# Define the parameter grid
+param_grid = {'n_epochs': [5, 10], 'lr_all': [0.002, 0.005], 'reg_all': [0.4, 0.6]}
+
+# Perform grid search
+gs = GridSearchCV(SVD, param_grid, measures=['rmse', 'mae'], cv=3)
+gs.fit(data)
+
+# Best RMSE score
+print(gs.best_score['rmse'])
+
+# Combination of parameters that gave the best RMSE score
+print(gs.best_params['rmse'])
+
+from surprise.model_selection import KFold
+from collections import defaultdict
+
+# Define the KFold cross-validator
+kf = KFold(n_splits=5)
+
+# Function to get the top k recommendations
+def get_top_n(predictions, n=10):
+    top_n = defaultdict(list)
+    for uid, iid, true_r, est, _ in predictions:
+        top_n[uid].append((iid, est))
+
+    for uid, user_ratings in top_n.items():
+        user_ratings.sort(key=lambda x: x[1], reverse=True)
+        top_n[uid] = user_ratings[:n]
+
+    return top_n
+
+# Run the KFold cross-validator
+for trainset, testset in kf.split(data):
+    algo.fit(trainset)
+    predictions = algo.test(testset)
+    top_n = get_top_n(predictions, n=10)
+
+    # Print the recommended items for each user
+    for uid, user_ratings in top_n.items():
+        print(uid, [iid for (iid, _) in user_ratings])
+
